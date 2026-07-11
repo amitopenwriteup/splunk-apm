@@ -1,0 +1,160 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+  namespace: service-map-lab
+spec:
+  selector:
+    app: order-service
+  ports:
+  - port: 80
+    targetPort: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: service-map-lab
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+      annotations:
+        instrumentation.opentelemetry.io/inject-python: "default/splunk-otel-collector"
+    spec:
+      containers:
+      - name: order-service
+        image: python:3.9-slim
+        ports:
+        - containerPort: 5000
+        env:
+        - name: POSTGRES_HOST
+          value: "postgres"
+        - name: POSTGRES_DB
+          value: "orders"
+        - name: POSTGRES_USER
+          value: "admin"
+        - name: POSTGRES_PASSWORD
+          value: "password123"
+        command:
+        - /bin/bash
+        - -c
+        - |
+          pip install -q flask psycopg2-binary requests
+          cat > /app.py << 'EOF'
+          from flask import Flask, jsonify, request
+          import psycopg2
+          import os
+          import random
+
+          app = Flask(__name__)
+
+          DB_CONFIG = {
+              'host': os.getenv('POSTGRES_HOST', 'postgres'),
+              'database': os.getenv('POSTGRES_DB', 'orders'),
+              'user': os.getenv('POSTGRES_USER', 'admin'),
+              'password': os.getenv('POSTGRES_PASSWORD', 'password123')
+          }
+
+          def get_db_connection():
+              """Create database connection"""
+              return psycopg2.connect(**DB_CONFIG, connect_timeout=3)
+
+          @app.route('/health')
+          def health():
+              """Health check - tests database connectivity"""
+              try:
+                  conn = get_db_connection()
+                  conn.close()
+                  return jsonify({"status": "healthy", "database": "connected"}), 200
+              except Exception as e:
+                  return jsonify({"status": "unhealthy", "error": str(e)}), 503
+
+          @app.route('/orders', methods=['POST'])
+          def create_order():
+              """Create a new order"""
+              data = request.get_json() or {}
+              product_id = data.get('product_id', random.randint(1, 100))
+              quantity = data.get('quantity', random.randint(1, 5))
+
+              try:
+                  conn = get_db_connection()
+                  cur = conn.cursor()
+
+                  cur.execute('''
+                      CREATE TABLE IF NOT EXISTS orders (
+                          id SERIAL PRIMARY KEY,
+                          product_id INTEGER,
+                          quantity INTEGER,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                      )
+                  ''')
+
+                  cur.execute(
+                      'INSERT INTO orders (product_id, quantity) VALUES (%s, %s) RETURNING id',
+                      (product_id, quantity)
+                  )
+                  order_id = cur.fetchone()[0]
+
+                  conn.commit()
+                  cur.close()
+                  conn.close()
+
+                  return jsonify({
+                      "order_id": order_id,
+                      "product_id": product_id,
+                      "quantity": quantity,
+                      "status": "created"
+                  }), 201
+
+              except Exception as e:
+                  return jsonify({
+                      "error": "Database error",
+                      "message": str(e)
+                  }), 500
+
+          @app.route('/orders')
+          def list_orders():
+              """List all orders"""
+              try:
+                  conn = get_db_connection()
+                  cur = conn.cursor()
+
+                  cur.execute('SELECT id, product_id, quantity, created_at FROM orders ORDER BY created_at DESC LIMIT 10')
+                  rows = cur.fetchall()
+
+                  orders = []
+                  for row in rows:
+                      orders.append({
+                          "id": row[0],
+                          "product_id": row[1],
+                          "quantity": row[2],
+                          "created_at": str(row[3])
+                      })
+
+                  cur.close()
+                  conn.close()
+
+                  return jsonify(orders), 200
+
+              except Exception as e:
+                  return jsonify({"error": str(e)}), 500
+
+          if __name__ == '__main__':
+              print("Starting Order Service...")
+              app.run(host='0.0.0.0', port=5000)
+          EOF
+          python /app.py
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
