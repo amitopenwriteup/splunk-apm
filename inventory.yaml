@@ -1,0 +1,66 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-service
+  namespace: service-map-lab
+spec:
+  selector:
+    app: inventory-service
+  ports:
+  - port: 80
+    targetPort: 5001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-service
+  namespace: service-map-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-service
+  template:
+    metadata:
+      labels:
+        app: inventory-service
+      annotations:
+        instrumentation.opentelemetry.io/inject-python: "default/splunk-otel-collector"
+    spec:
+      containers:
+      - name: inventory-service
+        image: python:3.9-slim
+        ports:
+        - containerPort: 5001
+        env:
+        - name: REDIS_HOST
+          value: "redis"
+        command:
+        - /bin/bash
+        - -c
+        - |
+          pip install -q flask redis
+          cat > /app.py << 'EOF'
+          from flask import Flask, jsonify
+          import redis
+          import os
+          import random
+
+          app = Flask(__name__)
+          redis_client = redis.Redis(host=os.getenv('REDIS_HOST', 'redis'), port=6379, decode_responses=True)
+
+          @app.route('/health')
+          def health():
+              return jsonify({"status": "healthy"}), 200
+
+          @app.route('/inventory/<int:product_id>')
+          def check_inventory(product_id):
+              stock = random.randint(0, 100)
+              redis_client.setex(f'inventory:{product_id}', 300, stock)
+              return jsonify({"product_id": product_id, "stock": stock}), 200
+
+          if __name__ == '__main__':
+              app.run(host='0.0.0.0', port=5001)
+          EOF
+          python /app.py
