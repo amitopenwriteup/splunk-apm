@@ -114,7 +114,7 @@ kubectl create namespace service-map-lab
 Save the manifest you already have as `api-gateway.yaml` (Service + Deployment with the `instrumentation.opentelemetry.io/inject-python` annotation), then:
 
 ```bash
-kubectl apply -f api-gateway.yaml
+kubectl apply -f gw.yaml
 ```
 
 > ⚠️ **Ordering matters.** The webhook only fires at pod *creation* time. If the `Instrumentation` CR (Step 2) isn't already applied before this Deployment creates its pod, you'll get an uninstrumented pod. If you applied things out of order, fix it with:
@@ -129,7 +129,9 @@ kubectl apply -f api-gateway.yaml
 ```bash
 kubectl get pods -n service-map-lab
 kubectl describe pod -n service-map-lab -l app=api-gateway
+kubectl get po -A
 ```
+
 
 Look for:
 
@@ -149,7 +151,7 @@ kubectl get svc -n service-map-lab api-gateway
 If `EXTERNAL-IP` stays `<pending>` (common on kind/minikube without a cloud LB controller), port-forward instead:
 
 ```bash
-kubectl port-forward -n service-map-lab svc/api-gateway 8080:80
+kubectl port-forward -n service-map-lab svc/api-gateway 8080:80 &
 ```
 
 Hit the health endpoint a few times:
