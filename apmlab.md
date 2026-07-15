@@ -80,14 +80,14 @@ metadata:
   namespace: default
 spec:
   exporter:
-    endpoint: http://$(SPLUNK_OTEL_AGENT):4317
+    endpoint: http://$(SPLUNK_OTEL_AGENT):4318   # note: 4318 = HTTP port, not 4317 (gRPC)
   propagators:
     - tracecontext
     - baggage
   python:
     env:
       - name: OTEL_EXPORTER_OTLP_PROTOCOL
-        value: grpc
+        value: http/protobuf   
 ```
 
 ```bash
