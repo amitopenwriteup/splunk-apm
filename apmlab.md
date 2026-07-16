@@ -73,6 +73,7 @@ This is the piece your pod annotation actually points to. **Without this object,
 
 ```yaml
 # instrumentation.yaml
+# instrumentation.yaml
 apiVersion: opentelemetry.io/v1alpha1
 kind: Instrumentation
 metadata:
@@ -80,14 +81,14 @@ metadata:
   namespace: default
 spec:
   exporter:
-    endpoint: http://$(SPLUNK_OTEL_AGENT):4318   # note: 4318 = HTTP port, not 4317 (gRPC)
+    endpoint: http://splunk-otel-collector-agent.default.svc.cluster.local:4318
   propagators:
     - tracecontext
     - baggage
   python:
     env:
       - name: OTEL_EXPORTER_OTLP_PROTOCOL
-        value: http/protobuf   
+        value: http/protobuf
 ```
 
 ```bash
